@@ -1,0 +1,155 @@
+version: '3.8'
+services:
+
+  zookeeper:
+    hostname: zookeeper
+    image: confluentinc/cp-zookeeper
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+
+  kafka:
+    image: confluentinc/cp-kafka
+    hostname: kafka
+    container_name: kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_ADVERTISED_HOST_NAME: host.docker.internal
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      ALLOW_PLAINTEXT_LISTENER: yes
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://host.docker.internal:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    depends_on:
+      - zookeeper
+
+  twitch-chat-ingestor:
+    hostname: twitch-chat-ingestor
+    image: docker.elastic.co/logstash/logstash:8.13.0
+    container_name: twitch-chat-ingestor
+    environment:
+      XPACK_MONITORING_ENABLED: "false"
+    ports:
+      - 9090:9090
+    volumes:
+      - ./logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+    depends_on:
+      - kafka
+
+  init-kafka:
+    image: confluentinc/cp-kafka
+    entrypoint: ['/bin/sh', '-c']
+    command: |
+      "
+      echo -e 'Creating kafka topics...'
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic general --replication-factor 1 --partitions 1
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic no_emotes_general --replication-factor 1 --partitions 1
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic enriched_chat --replication-factor 1 --partitions 1
+
+      echo -e 'Successfully created the following topics:'
+      kafka-topics --bootstrap-server kafka:9092 --list
+      "
+    depends_on:
+      - kafka
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    depends_on:
+      - kafka
+
+  emote_downloader:
+    build:
+      context: ./python_emote_downloader
+      dockerfile: Dockerfile
+    container_name: emote_downloader
+    hostname: emote_downloader
+    ports:
+      - "12345:12345"
+    volumes:
+      - E:\Uni\TAP\twitchsentimentanalisys/python_emote_downloader:/app
+    command: >
+      python getEmotes.py
+    depends_on:
+      - kafka
+
+  kafka-stream:
+    hostname: kafka-stream
+    container_name: kafka-stream
+    build:
+      context: ./filter_emotes
+      dockerfile: Dockerfile
+    volumes:
+      - E:\Uni\TAP\TwitchSentimentAnalisys\filter_emotes\app\build\libs\app-1.0.jar:/app/app-1.0.jar
+      - E:\Uni\TAP\twitchsentimentanalisys/python_emote_downloader:/app
+    command: bash -c "ls && java -jar app-1.0.jar"
+    depends_on:
+      - emote_downloader
+      - init-kafka
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    container_name: elasticsearch
+    ports: 
+      - "9200:9200"
+      - "9300:9300"
+    environment:
+      - "discovery.type=single-node"
+      - "xpack.security.enabled=false"
+
+  kibana:
+    hostname: kibana
+    image: docker.elastic.co/kibana/kibana:8.13.4
+    ports:
+      - 5601:5601
+    environment:
+      - "xpack.security.enabled=false"
+    volumes:
+      - E:\Uni\TAP\twitchsentimentanalisys/spark_sentiment/kibana.yml:/usr/share/kibana/config/kibana.yml
+    depends_on:
+      - elasticsearch
+
+  spark:
+    build:
+      context: ./spark_sentiment
+      dockerfile: Dockerfile
+    container_name: spark
+    hostname: spark
+    ports:
+      - "4040:4040"
+    volumes:
+      - E:\Uni\TAP\twitchsentimentanalisys/spark_sentiment:/opt/twitchsentimentanalisys
+    command: >
+      /opt/spark/bin/spark-submit --conf spark.driver.extraJavaOptions="-Divy.cache.dir=/tmp -Divy.home=/tmp" --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.2,org.elasticsearch:elasticsearch-spark-30_2.12:8.13.4 /opt/twitchsentimentanalisys/spark_sentiment.py
+    depends_on:
+      init-kafka:
+        condition: service_completed_successfully
+      elasticsearch:
+        condition: service_started
+
+  flask:
+    build:
+      context: ./python_chat_listener
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    command: python web_interface.py
+    volumes:
+      - ./python_chat_listener:/app
+      - ./python_emote_downloader/.env:/app/.env
+    depends_on:
+      spark:
+        condition: service_started
+      kafka:
+        condition: service_started
+      init-kafka:
+        condition: service_completed_successfully
+      elasticsearch:
+        condition: service_started

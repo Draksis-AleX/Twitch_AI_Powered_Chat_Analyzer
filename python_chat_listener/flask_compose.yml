@@ -1,0 +1,11 @@
+version: '3.8'
+services:
+  flask:
+    build: .
+    ports:
+      - "5000:5000"
+    command: python web_interface.py
+    volumes:
+      - .:/app
+      - ..\\python_emote_downloader/.env:/app/.env
+

@@ -1,0 +1,206 @@
+<!DOCTYPE HTML>
+<!--
+	Hyperspace by HTML5 UP
+	html5up.net | @ajlkn
+	Free for personal and commercial use under the CCA 3.0 license (html5up.net/license)
+-->
+<html>
+
+<head>
+    <title>Twitch AI Chat Analyzer</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='assets/css/main.css') }}" />
+    <noscript>
+        <link rel="stylesheet" href="{{ url_for('static', filename='assets/css/noscript.css') }}" />
+    </noscript>
+</head>
+
+<body class="is-preload">
+
+    <!-- Sidebar -->
+    <section id="sidebar">
+        <div class="inner">
+            <nav>
+                <ul>
+                    <li><a href="#intro">Welcome</a></li>
+                    <li><a href="#one">Chat</a></li>
+                    <li><a href="#two">Metrics</a></li>
+                </ul>
+            </nav>
+        </div>
+    </section>
+
+    <!-- Wrapper -->
+    <div id="wrapper">
+
+        <!-- Intro -->
+        <section id="intro" class="wrapper style1 fullscreen fade-up">
+            <div class="inner">
+                <h1>Twitch AI Powered Chat Analyzer</h1>
+                <p>An AI powered twitch chat analyzer</p>
+                <ul class="actions">
+                    <input type="text" id="channelInput" placeholder="Channel Name" style="margin-right: 5em;">
+                    <button type="submit" onclick="updateChannel()" id="startButton">Start</button
+                        style="margin-right: 5em;">
+                    <button type="submit" onclick="stopScript()" id="stopButton">Stop</button>
+                    <button type="submit" id="scriptStatus">Script Status</button>
+                </ul>
+            </div>
+        </section>
+
+        <!-- One -->
+        <section id="one" class="wrapper style2 spotlights">
+            <section>
+                <div class="content" style="width: 100%;">
+                    <div class="inner">
+                        <h2>Live Chat</h2>
+                        <div class="chat_container" id="chatBox">
+                        </div>
+                    </div>
+            </section>
+        </section>
+
+        <!-- Two -->
+        <section id="two" class="wrapper style3 fade-up">
+            <div class="inner">
+                <h2>Chat Metrics</h2>
+                <iframe
+                    src="http://localhost:5601/app/dashboards#/view/9ea6495f-88c7-4bf4-9d33-e2225f1c2762?embed=true&_g=(refreshInterval%3A(pause%3A!f%2Cvalue%3A30000)%2Ctime%3A(from%3Anow-15m%2Cto%3Anow))&hide-filter-bar=true"
+                    style="width: 100%; height: 100vh; border-radius: 10px; display:none" id="metrics_frame"></iframe>
+            </div>
+        </section>
+
+    </div>
+
+    <!-- Scripts -->
+    <script src="{{ url_for('static', filename='assets/js/jquery.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='assets/js/jquery.scrollex.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='assets/js/jquery.scrolly.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='assets/js/browser.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='assets/js/breakpoints.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='assets/js/util.js') }}"></script>
+    <script src="{{ url_for('static', filename='assets/js/main.js') }}"></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.0/socket.io.js"></script>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+
+    <script>
+        window.onload = function () {
+
+            setTimeout(func1, 2000);
+
+        };
+
+        function func1() {
+
+            document.getElementById("metrics_frame").style.display = "block";
+
+        }
+
+        function getScriptStatus() {
+            $.ajax({
+                url: '/script-status',
+                type: 'GET',
+                success: function (response) {
+                    console.log('Stato dello script:', response.status);
+                    if (response.status) {
+                        $('#scriptStatus').text('Running');
+                        $('#scriptStatus').css('background-color', 'rgb(148, 237, 148)');
+                    } else {
+                        $('#scriptStatus').text('Stopped');
+                        $('#scriptStatus').css('background-color', 'rgb(249, 153, 153)');
+                    }
+                },
+                error: function (error) {
+                    console.error('Errore durante il recupero dello stato dello script:', error);
+                }
+            });
+        }
+        $(document).ready(getScriptStatus());
+
+        function sentimentToColor(sentiment) {
+            let red, green;
+            if (sentiment < 0) {
+                // Mappa da -1 a 0 a rosso-giallo (255,0,0 a 255,255,0)
+                red = 255;
+                green = Math.round(255 * (sentiment + 1)); // Incrementa il verde
+            } else {
+                // Mappa da 0 a 1 a giallo-verde (255,255,0 a 0,255,0)
+                red = Math.round(255 * (1 - sentiment)); // Decrementa il rosso
+                green = 255;
+            }
+            return `rgb(${red},${green},0)`; // Nessun blu necessario
+        }
+
+        var socket = io();
+
+        socket.on('connect', function () {
+            console.log('Connected to WebSocket');
+        });
+
+        socket.on('new_message', function (data) {
+            var chatBox = document.getElementById('chatBox');
+            var messageData = JSON.parse(data.message);
+            let date = new Date(messageData.timestamp);
+            let hours = date.getHours();
+            let minutes = date.getMinutes();
+            let seconds = date.getSeconds();
+            let formattedTime = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            let imgsrc = "/static/images/" + encodeURIComponent(messageData.emotion) + ".png";
+            let color = sentimentToColor(messageData.sentiment);
+            console.log(imgsrc)
+            chatBox.innerHTML += "<div class='message'><span class='user'>" + messageData.chatter_name + "</span><br><div class='datetime'>" + formattedTime + "</div><img src='" + imgsrc + "' alt='" + encodeURIComponent(messageData.emotion) + "' class='emotion_img'><p class='message_text' style='color: " + color + "'>" + messageData.content + "</p></div>";
+            chatBox.scrollTop = chatBox.scrollHeight;
+            console.log(data.message);
+        });
+
+        function startScript() {
+            $.ajax({
+                url: '/run-script',
+                method: 'GET',
+                success: function (data) {
+                    console.log(data.message);
+                    getScriptStatus();
+                },
+                error: function (error) {
+                    console.error('Errore:', error);
+                }
+            });
+        }
+
+        function stopScript() {
+            $.ajax({
+                url: '/stop-script',
+                method: 'GET',
+                success: function (data) {
+                    console.log(data.message);
+                    getScriptStatus();
+                },
+                error: function (error) {
+                    console.error('Errore:', error);
+                }
+            });
+        }
+
+        function updateChannel() {
+            var channelName = document.getElementById('channelInput').value;
+            $.ajax({
+                url: '/update-channel',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ channel: channelName }),
+                success: function (data) {
+                    console.log(data.message);
+                    startScript();
+                },
+                error: function (error) {
+                    console.error('Errore:', error);
+                }
+            });
+        }
+    </script>
+
+</body>
+
+</html>

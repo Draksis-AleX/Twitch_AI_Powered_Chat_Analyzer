@@ -1,0 +1,7 @@
+Flask
+Flask-SocketIO
+python-dotenv
+kafka-python
+requests
+aiohttp
+twitchio

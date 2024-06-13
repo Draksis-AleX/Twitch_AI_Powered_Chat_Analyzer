@@ -1,0 +1,62 @@
+plugins {
+    id 'java'
+    id 'application'
+    id 'com.github.johnrengelman.shadow' version '7.1.2'
+}
+
+group 'com.example'
+version '1.0'
+
+sourceCompatibility = '11'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'com.google.code.gson:gson:2.8.6'
+    implementation 'com.google.guava:guava:31.0.1-jre'
+    implementation 'org.apache.commons:commons-lang3:3.12.0'
+    testImplementation 'junit:junit:4.13.2'
+
+    implementation 'org.apache.kafka:kafka-streams:3.7.0'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.13.0'
+
+    compileOnly 'org.projectlombok:lombok:1.18.32'
+	annotationProcessor 'org.projectlombok:lombok:1.18.32'
+	
+	testCompileOnly 'org.projectlombok:lombok:1.18.32'
+	testAnnotationProcessor 'org.projectlombok:lombok:1.18.32'
+
+    implementation 'org.slf4j:slf4j-api:1.7.30'
+    implementation 'ch.qos.logback:logback-classic:1.2.3'
+    implementation 'ch.qos.logback:logback-core:1.2.3'
+}
+
+application {
+    // Define the main class for the application.
+    mainClassName = 'myapps.EmojiFilterStream'
+}
+
+tasks.named('test') {
+    // Use JUnit to run tests.
+    useJUnit()
+}
+
+shadowJar {
+    archiveClassifier.set('') // Leave empty to replace the default jar
+    manifest {
+        attributes 'Main-Class': 'myapps.EmojiFilterStream'
+    }
+}
+
+// Optionally, you can configure the task to run the fat JAR
+run {
+    dependsOn shadowJar
+    doFirst {
+        javaexec {
+            main = '-jar'
+            args = [shadowJar.archiveFile.get().asFile.absolutePath]
+        }
+    }
+}
